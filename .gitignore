@@ -1,2 +1,5 @@
 shannon
 tests
+*.pdf
+*.bin
+*.txt
