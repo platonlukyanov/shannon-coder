@@ -14,7 +14,7 @@ class BitWriter {
     std::vector<uint8_t> buffer;
     uint8_t currentByte = 0;
     int bitsFilled = 0;
-    size_t totalBits = 0;
+    uint32_t totalBits = 0;
 
 public:
     void writeBit(bool bit) {
@@ -37,9 +37,10 @@ public:
 
     std::vector<uint8_t> getBuffer() {
         std::vector<uint8_t> result;
-        // Всегда два байта для длины (младший, старший)
         result.push_back(static_cast<uint8_t>(totalBits & 0xFF));
         result.push_back(static_cast<uint8_t>((totalBits >> 8) & 0xFF));
+        result.push_back(static_cast<uint8_t>((totalBits >> 16) & 0xFF));
+        result.push_back(static_cast<uint8_t>((totalBits >> 24) & 0xFF));
         for (uint8_t b : buffer) result.push_back(b);
         if (bitsFilled > 0) {
             currentByte <<= (8 - bitsFilled);
@@ -53,17 +54,20 @@ public:
 
 class BitReader {
     const std::vector<uint8_t>& buffer;
-    size_t byteIndex = 2;
+    size_t byteIndex = 4;
     int bitIndex = 7;
-    size_t totalBits = 0;
-    size_t bitsRead = 0;
+    uint32_t totalBits = 0;
+    uint32_t bitsRead = 0;
 
 public:
     BitReader(const std::vector<uint8_t>& buf) : buffer(buf) {
-        if (buffer.size() < 2) {
+        if (buffer.size() < 4) {
             totalBits = 0;
         } else {
-            totalBits = static_cast<size_t>(buffer[0]) | (static_cast<size_t>(buffer[1]) << 8);
+            totalBits = static_cast<uint32_t>(buffer[0]) |
+                        (static_cast<uint32_t>(buffer[1]) << 8) |
+                        (static_cast<uint32_t>(buffer[2]) << 16) |
+                        (static_cast<uint32_t>(buffer[3]) << 24);
         }
     }
 
@@ -166,7 +170,7 @@ std::unordered_map<uint8_t, std::vector<bool>> buildCodeMap(const std::vector<Sh
 }
 
 std::vector<uint8_t> shannonEncode(const std::vector<uint8_t>& data, std::vector<ShannonDictionaryPair>& codes) {
-    if (data.empty() || codes.empty()) return std::vector<uint8_t>{0, 0};
+    if (data.empty() || codes.empty()) return std::vector<uint8_t>{0, 0, 0, 0};
     // Если только один байт в словаре, кодируем каждый байт одним битом (0)
     if (codes.size() == 1) {
         BitWriter writer;
@@ -187,55 +191,86 @@ std::vector<uint8_t> shannonEncode(const std::vector<uint8_t>& data, std::vector
 
 void writeDictionaryFile(std::vector<ShannonDictionaryPair>& codes, std::string& filename) {
     std::ofstream file(filename, std::ios::binary);
+    if (!file) {
+        throw std::runtime_error("Не удалось открыть файл для записи словаря");
+    }
+
+    uint16_t num_codes = static_cast<uint16_t>(codes.size());
+    file.write(reinterpret_cast<const char*>(&num_codes), sizeof(num_codes));
 
     for (const auto& pair : codes) {
-        // Записываем длину кода (1 байт)
-        file << static_cast<uint8_t>(pair.code.size());
-        // Записываем код (по байтам)
+        // Writing down the code length
+        uint8_t code_length = static_cast<uint8_t>(pair.code.size());
+        file.write(reinterpret_cast<const char*>(&code_length), sizeof(code_length));
+
+        // Writing down the code (by bytes)
         uint8_t current_byte = 0;
         int bits_filled = 0;
         for (bool bit : pair.code) {
             current_byte = (current_byte << 1) | (bit ? 1 : 0);
             bits_filled++;
             if (bits_filled == 8) {
-                file << current_byte;
+                file.write(reinterpret_cast<const char*>(&current_byte), sizeof(current_byte));
                 current_byte = 0;
                 bits_filled = 0;
             }
         }
         if (bits_filled > 0) {
             current_byte <<= (8 - bits_filled);
-            file << current_byte;
+            file.write(reinterpret_cast<const char*>(&current_byte), sizeof(current_byte));
         }
+
         // Записываем байт
-        file << pair.byte;
+        file.write(reinterpret_cast<const char*>(&pair.byte), sizeof(pair.byte));
+    }
+
+    if (!file) {
+        throw std::runtime_error("Ошибка при записи словаря");
     }
 }
 
 std::vector<ShannonDictionaryPair> readDictionaryFile(std::string& filename) {
     std::ifstream file(filename, std::ios::binary);
+    if (!file) {
+        throw std::runtime_error("Не удалось открыть файл словаря");
+    }
+
+    // Reading the number of codes
+    uint16_t num_codes;
+    if (!file.read(reinterpret_cast<char*>(&num_codes), sizeof(num_codes))) {
+        throw std::runtime_error("Ошибка при чтении количества кодов");
+    }
+
     std::vector<ShannonDictionaryPair> codes;
+    codes.reserve(num_codes);
     
-    while (file) {
-        // Читаем длину кода
+    for (uint16_t i = 0; i < num_codes; ++i) {
+        // Reading the code length
         uint8_t code_length;
-        if (!file.read(reinterpret_cast<char*>(&code_length), 1)) break;
+        if (!file.read(reinterpret_cast<char*>(&code_length), sizeof(code_length))) {
+            throw std::runtime_error("Ошибка при чтении длины кода");
+        }
         
-        // Читаем код
+        // Reading the code
         std::vector<bool> code;
+        code.reserve(code_length);
         uint8_t current_byte;
         int bits_read = 0;
         while (bits_read < code_length) {
-            if (!file.read(reinterpret_cast<char*>(&current_byte), 1)) break;
-            for (int i = 7; i >= 0 && bits_read < code_length; --i) {
-                code.push_back((current_byte >> i) & 1);
+            if (!file.read(reinterpret_cast<char*>(&current_byte), sizeof(current_byte))) {
+                throw std::runtime_error("Ошибка при чтении кода");
+            }
+            for (int j = 7; j >= 0 && bits_read < code_length; --j) {
+                code.push_back((current_byte >> j) & 1);
                 bits_read++;
             }
         }
         
-        // Читаем байт
+        // Reading the byte
         uint8_t byte;
-        if (!file.read(reinterpret_cast<char*>(&byte), 1)) break;
+        if (!file.read(reinterpret_cast<char*>(&byte), sizeof(byte))) {
+            throw std::runtime_error("Ошибка при чтении байта");
+        }
         
         codes.push_back({code, byte});
     }
@@ -244,16 +279,35 @@ std::vector<ShannonDictionaryPair> readDictionaryFile(std::string& filename) {
 }
 
 std::vector<uint8_t> shannonDecode(const std::vector<ShannonDictionaryPair>& codes, const std::vector<uint8_t>& encodedData) {
-    if (encodedData.size() < 2) return std::vector<uint8_t>();
+    if (encodedData.size() < 4) return std::vector<uint8_t>();
     if (codes.empty()) return std::vector<uint8_t>();
-    // Если только один байт в словаре, возвращаем вектор длины totalBits из этого байта
+
+    // Getting the total number of bits from the first four bytes
+    uint32_t totalBits = static_cast<uint32_t>(encodedData[0]) |
+                        (static_cast<uint32_t>(encodedData[1]) << 8) |
+                        (static_cast<uint32_t>(encodedData[2]) << 16) |
+                        (static_cast<uint32_t>(encodedData[3]) << 24);
+    
+    // Checking that we have enough data
+    size_t minBytes = (totalBits + 7) / 8;
+    if (encodedData.size() < minBytes + 4) {
+        throw std::runtime_error("Недостаточно данных для декодирования");
+    }
+
+    // If only one byte in the dictionary, return the vector of the total bits from this byte
     if (codes.size() == 1) {
-        size_t totalBits = static_cast<size_t>(encodedData[0]) | (static_cast<size_t>(encodedData[1]) << 8);
         return std::vector<uint8_t>(totalBits, codes[0].byte);
     }
+
     struct TrieNode {
         uint8_t byte = 0;
+        bool is_terminal = false;
         std::unordered_map<bool, TrieNode*> children;
+        ~TrieNode() {
+            for (auto& pair : children) {
+                delete pair.second;
+            }
+        }
     };
 
     TrieNode root;
@@ -266,6 +320,7 @@ std::vector<uint8_t> shannonDecode(const std::vector<ShannonDictionaryPair>& cod
             node = node->children[bit];
         }
         node->byte = pair.byte;
+        node->is_terminal = true;
     }
 
     std::vector<uint8_t> result;
@@ -273,20 +328,20 @@ std::vector<uint8_t> shannonDecode(const std::vector<ShannonDictionaryPair>& cod
     TrieNode* node = &root;
 
     try {
-        while (true) {
+        for (uint32_t bits = 0; bits < totalBits; ++bits) {
             bool bit = reader.readBit();
             if (!node->children.count(bit)) {
-                throw std::runtime_error("Invalid code");
+                throw std::runtime_error("Неверный код");
             }
             node = node->children[bit];
-            if (node->byte != 0) {
+            if (node->is_terminal) {
                 result.push_back(node->byte);
                 node = &root;
             }
         }
     } catch (const std::runtime_error& e) {
         if (node != &root) {
-            throw std::runtime_error("Unexpected end of data");
+            throw std::runtime_error("Неожиданный конец данных");
         }
     }
 
@@ -301,7 +356,6 @@ int main(int argc, char* argv[])
     std::string mode = "e";
     std::string dictFile = "codes.txt";
     
-    // Парсинг аргументов командной строки
     for (int i = 1; i < argc; i++) {
         std::string arg(argv[i]);
         if (arg == "-d") {
@@ -319,15 +373,12 @@ int main(int argc, char* argv[])
 
     if (mode == "d") {
         try {
-            // Читаем закодированные данные из stdin (бинарно)
             std::vector<uint8_t> buffer;
             char c;
             while (std::cin.get(c)) {
                 buffer.push_back(static_cast<uint8_t>(c));
             }
-            // Читаем словарь из файла
             std::vector<ShannonDictionaryPair> codes = readDictionaryFile(dictFile);
-            // Декодируем и выводим результат
             std::vector<uint8_t> decoded = shannonDecode(codes, buffer);
             std::cout.write(reinterpret_cast<const char*>(decoded.data()), decoded.size());
         } catch (const std::exception& e) {
@@ -336,20 +387,15 @@ int main(int argc, char* argv[])
         }
     } else if (mode == "e") {
         try {
-            // Читаем данные для кодирования из stdin (бинарно)
             std::vector<uint8_t> data;
             char c;
             while (std::cin.get(c)) {
                 data.push_back(static_cast<uint8_t>(c));
             }
-            // Получаем вероятности и строим словарь
             auto probabilities = getProbabilityOfBytes(data);
             std::vector<ShannonDictionaryPair> codes = getOptimalDictionary(probabilities);
-            // Сохраняем словарь в файл
             writeDictionaryFile(codes, dictFile);
-            // Кодируем данные
             std::vector<uint8_t> buffer = shannonEncode(data, codes);
-            // Выводим закодированные данные в stdout (бинарно)
             std::cout.write(reinterpret_cast<const char*>(buffer.data()), buffer.size());
         } catch (const std::exception& e) {
             std::cerr << "Ошибка кодирования: " << e.what() << std::endl;
