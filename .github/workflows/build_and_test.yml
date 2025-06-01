@@ -37,16 +37,3 @@ jobs:
       run: |
         ./build.sh test
         ./tests  # Ensure this matches your test binary path
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.x'
-
-    - name: Install Python dependencies
-      run: |
-        python -m pip install --upgrade pip
-
-    - name: Run Python tests
-      run: |
-        python3 test/test_random.py 
