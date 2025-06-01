@@ -179,8 +179,9 @@ std::vector<uint8_t> shannonEncode(std::string& text, std::vector<ShannonDiction
     return writer.getBuffer();
 }
 
-void writeDictionaryFile(std::vector<ShannonDictionaryPair>& codes) {
-    std::ofstream file("codes.txt");
+void writeDictionaryFile(std::vector<ShannonDictionaryPair>& codes, std::string& filename) {
+    std::ofstream file(filename);
+
     for (const auto& pair : codes) {
         for (bool bit : pair.code) {
             file << (bit ? '1' : '0');
@@ -189,8 +190,8 @@ void writeDictionaryFile(std::vector<ShannonDictionaryPair>& codes) {
     }
 }
 
-std::vector<ShannonDictionaryPair> readDictionaryFile() {
-    std::ifstream file("codes.txt");
+std::vector<ShannonDictionaryPair> readDictionaryFile(std::string& filename) {
+    std::ifstream file(filename);
     std::vector<ShannonDictionaryPair> codes;
     std::string line;
     
@@ -265,52 +266,61 @@ std::string shannonDecode(const std::vector<ShannonDictionaryPair>& codes, const
 #else
 int main(int argc, char* argv[])
 {
-	std::string txt = "abracadabra";
-	auto probabilities = getProbabilityOfSymbols(txt);
-	std::vector<ShannonDictionaryPair> codes = getOptimalDictionary(probabilities);
+    std::string mode = "e";
+    std::string dictFile = "codes.txt";
+    
+    // Парсинг аргументов командной строки
+    for (int i = 1; i < argc; i++) {
+        std::string arg(argv[i]);
+        if (arg == "-d") {
+            mode = "d";
+        } else if (arg == "-e") {
+            mode = "e";
+        } else if (arg == "--dict" && i + 1 < argc) {
+            dictFile = argv[++i];
+        } else {
+            std::cerr << "Неизвестный аргумент: " << arg << std::endl;
+            std::cerr << "Использование: " << argv[0] << " [-e|-d] [--dict filename]" << std::endl;
+            return EXIT_FAILURE;
+        }
+    }
 
-	writeDictionaryFile(codes);
-
-	std::vector<uint8_t> buffer = shannonEncode(txt, codes);
-	std::cout << "Buffer: " << std::endl;
-
-	for (uint8_t b : buffer) {
-		std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)b << std::endl;
-	}
-
-	std::cout << "Decoding: " << shannonDecode(codes, buffer) << std::endl;
-
-	std::cout << std::endl;
-
-	std::string mode = "e";
-	if (argc > 1) {
-		std::string arg(argv[1]);
-		
-		if (arg == "-d") {
-			mode = "d";
-		}
-	}
-
-	if (mode == "d") {
-		try {
-			std::string buffer = readString();
-			std::cout << "Decoding: " << buffer << std::endl;
-		} catch (const std::exception& e) {
-			std::cerr << "Decoding Error: " << e.what() << std::endl;
-			return EXIT_FAILURE;
-		}
-	}
-	
-	if (mode == "e") {
-		try {
-			std::cout << "Buffer: " << std::endl;
-		} catch (const std::exception& e) {
-			std::cerr << "Encoding Error: " << e.what() << std::endl;
-			return EXIT_FAILURE;
-		}
-	}
-
-	
-	return 0;
+    if (mode == "d") {
+        try {
+            // Читаем закодированные данные из stdin (бинарно)
+            std::vector<uint8_t> buffer;
+            char c;
+            while (std::cin.get(c)) {
+                buffer.push_back(static_cast<uint8_t>(c));
+            }
+            // Читаем словарь из файла
+            std::vector<ShannonDictionaryPair> codes = readDictionaryFile(dictFile);
+            // Декодируем и выводим результат
+            std::string decoded = shannonDecode(codes, buffer);
+            std::cout << decoded;
+        } catch (const std::exception& e) {
+            std::cerr << "Ошибка декодирования: " << e.what() << std::endl;
+            return EXIT_FAILURE;
+        }
+    } else if (mode == "e") {
+        try {
+            // Читаем текст для кодирования из stdin
+            std::string text = readString();
+            // Получаем вероятности и строим словарь
+            auto probabilities = getProbabilityOfSymbols(text);
+            std::vector<ShannonDictionaryPair> codes = getOptimalDictionary(probabilities);
+            // Сохраняем словарь в файл
+            writeDictionaryFile(codes, dictFile);
+            // Кодируем текст
+            std::vector<uint8_t> buffer = shannonEncode(text, codes);
+            // Выводим закодированные данные в stdout (бинарно)
+            std::cout.write(reinterpret_cast<const char*>(buffer.data()), buffer.size());
+        } catch (const std::exception& e) {
+            std::cerr << "Ошибка кодирования: " << e.what() << std::endl;
+            return EXIT_FAILURE;
+        }
+    }
+    
+    return 0;
 }
 #endif
