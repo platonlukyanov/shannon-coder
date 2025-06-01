@@ -14,12 +14,14 @@ class BitWriter {
     std::vector<uint8_t> buffer;
     uint8_t currentByte = 0;
     int bitsFilled = 0;
+    size_t totalBits = 0;
 
 public:
     void writeBit(bool bit) {
         currentByte <<= 1;
         if (bit) currentByte |= 1;
         bitsFilled++;
+        totalBits++;
         if (bitsFilled == 8) {
             buffer.push_back(currentByte);
             currentByte = 0;
@@ -34,31 +36,46 @@ public:
     }
 
     std::vector<uint8_t> getBuffer() {
+        std::vector<uint8_t> result;
+        // Всегда два байта для длины (младший, старший)
+        result.push_back(static_cast<uint8_t>(totalBits & 0xFF));
+        result.push_back(static_cast<uint8_t>((totalBits >> 8) & 0xFF));
+        for (uint8_t b : buffer) result.push_back(b);
         if (bitsFilled > 0) {
             currentByte <<= (8 - bitsFilled);
-            buffer.push_back(currentByte);
+            result.push_back(currentByte);
             currentByte = 0;
             bitsFilled = 0;
         }
-        return buffer;
+        return result;
     }
 };
 
 class BitReader {
     const std::vector<uint8_t>& buffer;
-    size_t byteIndex = 0;
+    size_t byteIndex = 2;
     int bitIndex = 7;
+    size_t totalBits = 0;
+    size_t bitsRead = 0;
 
 public:
-    BitReader(const std::vector<uint8_t>& buf) : buffer(buf) {}
+    BitReader(const std::vector<uint8_t>& buf) : buffer(buf) {
+        if (buffer.size() < 2) {
+            totalBits = 0;
+        } else {
+            totalBits = static_cast<size_t>(buffer[0]) | (static_cast<size_t>(buffer[1]) << 8);
+        }
+    }
 
     bool readBit() {
+        if (bitsRead >= totalBits) throw std::runtime_error("Read past end");
         if (byteIndex >= buffer.size()) throw std::runtime_error("Read past end");
         bool bit = (buffer[byteIndex] >> bitIndex) & 1;
         if (--bitIndex < 0) {
             bitIndex = 7;
             ++byteIndex;
         }
+        bitsRead++;
         return bit;
     }
 };
@@ -143,6 +160,15 @@ std::unordered_map<char, std::vector<bool>> buildCodeMap(const std::vector<Shann
     return codeMap;
 }
 std::vector<uint8_t> shannonEncode(std::string& text, std::vector<ShannonDictionaryPair>& codes) {
+    if (text.empty() || codes.empty()) return std::vector<uint8_t>{0, 0};
+    // Если только один символ в словаре, кодируем каждый символ одним битом (0)
+    if (codes.size() == 1) {
+        BitWriter writer;
+        for (size_t i = 0; i < text.size(); ++i) {
+            writer.writeBit(0);
+        }
+        return writer.getBuffer();
+    }
     auto codeMap = buildCodeMap(codes);
 
     BitWriter writer;
@@ -185,6 +211,13 @@ std::vector<ShannonDictionaryPair> readDictionaryFile() {
 
 
 std::string shannonDecode(const std::vector<ShannonDictionaryPair>& codes, const std::vector<uint8_t>& encodedData) {
+    if (encodedData.size() < 2) return "";
+    if (codes.empty()) return "";
+    // Если только один символ в словаре, возвращаем строку длины totalBits из этого символа
+    if (codes.size() == 1) {
+        size_t totalBits = static_cast<size_t>(encodedData[0]) | (static_cast<size_t>(encodedData[1]) << 8);
+        return std::string(totalBits, codes[0].character);
+    }
     struct TrieNode {
         char character = 0;
         std::unordered_map<bool, TrieNode*> children;
@@ -218,11 +251,13 @@ std::string shannonDecode(const std::vector<ShannonDictionaryPair>& codes, const
                 node = &root;
             }
         }
-    } catch (const std::runtime_error&) {
-        // End of data reached
+    } catch (const std::runtime_error& e) {
+        if (node != &root) {
+            throw std::runtime_error("Unexpected end of data");
+        }
     }
 
-	return result;
+    return result;
 }
 
 #ifdef TESTING
