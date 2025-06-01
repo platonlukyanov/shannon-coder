@@ -13,28 +13,28 @@ public:
     bool readBit();
 };
 
-struct ShannonProbabilityCharPair {
-    char character;
+struct ShannonProbabilityBytePair {
+    uint8_t byte;
     double probability;
 };
 
 struct ShannonDictionaryPair {
     std::vector<bool> code;
-    char character;
+    uint8_t byte;
 };
 
-std::vector<ShannonProbabilityCharPair> getProbabilityOfSymbols(std::string& text);
+std::vector<ShannonProbabilityBytePair> getProbabilityOfBytes(const std::vector<uint8_t>& data);
 std::vector<ShannonDictionaryPair> getOptimalDictionary(
-    const std::vector<ShannonProbabilityCharPair>& probabilities
+    const std::vector<ShannonProbabilityBytePair>& probabilities
 );
-std::unordered_map<char, std::vector<bool>> buildCodeMap(
+std::unordered_map<uint8_t, std::vector<bool>> buildCodeMap(
     const std::vector<ShannonDictionaryPair>& codes
 );
 std::vector<uint8_t> shannonEncode(
-    std::string& text, 
+    const std::vector<uint8_t>& data, 
     std::vector<ShannonDictionaryPair>& codes
 );
-std::string shannonDecode(
+std::vector<uint8_t> shannonDecode(
     const std::vector<ShannonDictionaryPair>& codes,
     const std::vector<uint8_t>& encodedData
 );
@@ -44,75 +44,91 @@ std::vector<ShannonDictionaryPair> readDictionaryFile();
 
 TEST(Shannon, EncodeDecode) {
     std::string text = "abracadabra";
-    auto probabilities = getProbabilityOfSymbols(text);
+    std::vector<uint8_t> data(text.begin(), text.end());
+    auto probabilities = getProbabilityOfBytes(data);
     std::vector<ShannonDictionaryPair> codes = getOptimalDictionary(probabilities);
-    std::vector<uint8_t> buffer = shannonEncode(text, codes);
-    std::string decoded = shannonDecode(codes, buffer);
-    EXPECT_EQ(decoded, text);
+    std::vector<uint8_t> buffer = shannonEncode(data, codes);
+    std::vector<uint8_t> decoded = shannonDecode(codes, buffer);
+    std::string result(decoded.begin(), decoded.end());
+    EXPECT_EQ(result, text);
 }
 
 TEST(Shannon, EmptyString) {
     std::string text = "";
-    auto probabilities = getProbabilityOfSymbols(text);
+    std::vector<uint8_t> data(text.begin(), text.end());
+    auto probabilities = getProbabilityOfBytes(data);
     std::vector<ShannonDictionaryPair> codes = getOptimalDictionary(probabilities);
-    std::vector<uint8_t> buffer = shannonEncode(text, codes);
-    std::string decoded = shannonDecode(codes, buffer);
-    EXPECT_EQ(decoded, text);
+    std::vector<uint8_t> buffer = shannonEncode(data, codes);
+    std::vector<uint8_t> decoded = shannonDecode(codes, buffer);
+    std::string result(decoded.begin(), decoded.end());
+    EXPECT_EQ(result, text);
 }
 
 TEST(Shannon, SingleChar) {
     std::string text = "aaaaaa";
-    auto probabilities = getProbabilityOfSymbols(text);
+    std::vector<uint8_t> data(text.begin(), text.end());
+    auto probabilities = getProbabilityOfBytes(data);
     std::vector<ShannonDictionaryPair> codes = getOptimalDictionary(probabilities);
-    std::vector<uint8_t> buffer = shannonEncode(text, codes);
-    std::string decoded = shannonDecode(codes, buffer);
-    EXPECT_EQ(decoded, text);
+    std::vector<uint8_t> buffer = shannonEncode(data, codes);
+    std::vector<uint8_t> decoded = shannonDecode(codes, buffer);
+    std::string result(decoded.begin(), decoded.end());
+    EXPECT_EQ(result, text);
 }
 
 TEST(Shannon, TwoChars) {
     std::string text = "abababab";
-    auto probabilities = getProbabilityOfSymbols(text);
+    std::vector<uint8_t> data(text.begin(), text.end());
+    auto probabilities = getProbabilityOfBytes(data);
     std::vector<ShannonDictionaryPair> codes = getOptimalDictionary(probabilities);
-    std::vector<uint8_t> buffer = shannonEncode(text, codes);
-    std::string decoded = shannonDecode(codes, buffer);
-    EXPECT_EQ(decoded, text);
+    std::vector<uint8_t> buffer = shannonEncode(data, codes);
+    std::vector<uint8_t> decoded = shannonDecode(codes, buffer);
+    std::string result(decoded.begin(), decoded.end());
+    EXPECT_EQ(result, text);
 }
 
 TEST(Shannon, RepeatedPattern) {
     std::string text = "abcabcabcabcabcabc";
-    auto probabilities = getProbabilityOfSymbols(text);
+    std::vector<uint8_t> data(text.begin(), text.end());
+    auto probabilities = getProbabilityOfBytes(data);
     std::vector<ShannonDictionaryPair> codes = getOptimalDictionary(probabilities);
-    std::vector<uint8_t> buffer = shannonEncode(text, codes);
-    std::string decoded = shannonDecode(codes, buffer);
-    EXPECT_EQ(decoded, text);
+    std::vector<uint8_t> buffer = shannonEncode(data, codes);
+    std::vector<uint8_t> decoded = shannonDecode(codes, buffer);
+    std::string result(decoded.begin(), decoded.end());
+    EXPECT_EQ(result, text);
 }
 
 TEST(Shannon, SpacesAndSpecials) {
     std::string text = "a b!c? a b!c?";
-    auto probabilities = getProbabilityOfSymbols(text);
+    std::vector<uint8_t> data(text.begin(), text.end());
+    auto probabilities = getProbabilityOfBytes(data);
     std::vector<ShannonDictionaryPair> codes = getOptimalDictionary(probabilities);
-    std::vector<uint8_t> buffer = shannonEncode(text, codes);
-    std::string decoded = shannonDecode(codes, buffer);
-    EXPECT_EQ(decoded, text);
+    std::vector<uint8_t> buffer = shannonEncode(data, codes);
+    std::vector<uint8_t> decoded = shannonDecode(codes, buffer);
+    std::string result(decoded.begin(), decoded.end());
+    EXPECT_EQ(result, text);
 }
 
 TEST(Shannon, Cyrillic) {
     std::string text = "привет мир";
-    auto probabilities = getProbabilityOfSymbols(text);
+    std::vector<uint8_t> data(text.begin(), text.end());
+    auto probabilities = getProbabilityOfBytes(data);
     std::vector<ShannonDictionaryPair> codes = getOptimalDictionary(probabilities);
-    std::vector<uint8_t> buffer = shannonEncode(text, codes);
-    std::string decoded = shannonDecode(codes, buffer);
-    EXPECT_EQ(decoded, text);
+    std::vector<uint8_t> buffer = shannonEncode(data, codes);
+    std::vector<uint8_t> decoded = shannonDecode(codes, buffer);
+    std::string result(decoded.begin(), decoded.end());
+    EXPECT_EQ(result, text);
 }
 
 TEST(Shannon, LongString) {
     std::string text(1000, 'x');
     for (int i = 0; i < 1000; i += 2) text[i] = 'y';
-    auto probabilities = getProbabilityOfSymbols(text);
+    std::vector<uint8_t> data(text.begin(), text.end());
+    auto probabilities = getProbabilityOfBytes(data);
     std::vector<ShannonDictionaryPair> codes = getOptimalDictionary(probabilities);
-    std::vector<uint8_t> buffer = shannonEncode(text, codes);
-    std::string decoded = shannonDecode(codes, buffer);
-    EXPECT_EQ(decoded, text);
+    std::vector<uint8_t> buffer = shannonEncode(data, codes);
+    std::vector<uint8_t> decoded = shannonDecode(codes, buffer);
+    std::string result(decoded.begin(), decoded.end());
+    EXPECT_EQ(result, text);
 }
 
 int main(int argc, char **argv) {
